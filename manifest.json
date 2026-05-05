@@ -1,0 +1,24 @@
+{
+  "name": "Doces Manhãs — Confeitaria",
+  "short_name": "Doces Manhãs",
+  "description": "Cardápio digital da Doces Manhãs. Bolos e doces artesanais feitos com carinho.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FDE8ED",
+  "theme_color": "#F9C6D0",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
