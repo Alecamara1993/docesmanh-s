@@ -813,15 +813,25 @@
           .sort((a,b) => (a.order||0) - (b.order||0));
         window.renderProducts();
       } catch(e) {
+        console.error('Firebase _loadProducts erro:', e.code, e.message);
+        let msg = '⚠️ Erro ao carregar o cardápio.';
+        if (e.code === 'permission-denied')
+          msg = '⚠️ Permissão negada. Verifique as Regras do Firestore no Firebase Console.';
+        else if (e.code === 'unavailable' || e.message?.includes('network'))
+          msg = '⚠️ Sem conexão com o servidor. Verifique sua internet.';
+        else if (e.message?.includes('projectId') || e.message?.includes('API key'))
+          msg = '⚠️ Credenciais do Firebase inválidas. Verifique o index.html.';
         document.getElementById('products-container').innerHTML =
-          '<div class="empty-state">⚠️ Erro ao carregar. Verifique a configuração do Firebase.</div>';
+          `<div class="empty-state">${msg}<br><small style="color:#999;font-size:11px">${e.code || e.message}</small></div>`;
       }
     };
 
     window._loadProducts();
-  </script>
 
-  <script>
+    // ═══════════════════════════════════════
+    // CÓDIGO DO CARDÁPIO (unificado no module)
+    // ═══════════════════════════════════════
+
     // ── Config ──
     const PHONE = '5521997940370';
 
@@ -1280,6 +1290,27 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
     }
+
+    // ── Expor funções para onclick no HTML (module scope fix) ──
+    window.filterCat = filterCat;
+    window.filterProducts = filterProducts;
+    window.toggleCart = toggleCart;
+    window.sendWA = sendWA;
+    window.doLogin = doLogin;
+    window.closeLoginModal = closeLoginModal;
+    window.doLogout = doLogout;
+    window.addProduct = addProduct;
+    window.addItem = addItem;
+    window.changeQty = changeQty;
+    window.checkBtn = checkBtn;
+    window.toggleEditForm = toggleEditForm;
+    window.saveEdit = saveEdit;
+    window.deleteProduct = deleteProduct;
+    window.previewImg = previewImg;
+    window.renderAdminList = renderAdminList;
+    window.renderProducts = renderProducts;
+    window.renderCart = renderCart;
+    window.showToast = showToast;
   </script>
 </body>
 </html>
