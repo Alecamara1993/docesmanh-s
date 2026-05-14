@@ -750,17 +750,21 @@
   <!-- ═══════════════════════════════════════
        FIREBASE SDK
   ════════════════════════════════════════ -->
+
+  <!-- ═══════════════════════════════════════════════════════
+       FIREBASE SDK  +  TODO O CÓDIGO DO APP
+       Um único script type="module" resolve o escopo.
+       Funções chamadas por onclick são expostas via window.*
+  ════════════════════════════════════════════════════════ -->
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { initializeApp }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
     import { getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, onSnapshot, serverTimestamp }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-    // ╔══════════════════════════════════════════╗
-    // ║  ⚠️  COLOQUE AQUI AS SUAS CREDENCIAIS    ║
-    // ║  DO FIREBASE (veja o guia LEIA-ME.txt)   ║
-    // ╚══════════════════════════════════════════╝
+    // ── Credenciais Firebase ──────────────────────────────
     const firebaseConfig = {
       apiKey:            "AIzaSyDGilyb1fIPnui7L69HZyXWyZTAmJsvfVE",
       authDomain:        "doces-manhas.firebaseapp.com",
@@ -773,81 +777,74 @@
     const app  = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db   = getFirestore(app);
-    // ── Expor para o código global ──
-    window._fb = { auth, db,
-      signInWithEmailAndPassword, signOut, onAuthStateChanged,
-      collection, getDocs, addDoc, updateDoc, deleteDoc, doc, onSnapshot, serverTimestamp
-    };
 
-    // ── Auth listener ──
+    // ── Config ───────────────────────────────────────────
+    const PHONE          = '5521997940370';
+    const IMGUR_CLIENT_ID = '546c25a59c58ad7';
+
+    // ── Estado global ────────────────────────────────────
+    let _products  = [];
+    let cart       = {};
+    let currentCat = 'todos';
+    let searchVal  = '';
+
+    // ════════════════════════════════════════════════════
+    // AUTH — listener de sessão
+    // ════════════════════════════════════════════════════
     onAuthStateChanged(auth, user => {
       if (user) {
         document.getElementById('ap-user-email').textContent = user.email;
         document.getElementById('admin-overlay').classList.remove('open');
         document.getElementById('admin-panel').classList.add('open');
         document.body.style.overflow = 'hidden';
-        window._adminListenProducts();
+        listenProducts(); // real-time para admin
       } else {
         document.getElementById('admin-panel').classList.remove('open');
         document.body.style.overflow = '';
       }
     });
 
-    // ── Real-time listener produtos ──
-    window._adminListenProducts = function() {
-      const { collection, onSnapshot, db } = window._fb;
-      onSnapshot(collection(db, 'products'), snap => {
-        window._products = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-          .sort((a,b) => (a.order||0) - (b.order||0));
-        window.renderProducts();
-        window.renderAdminList();
-      });
-    };
-
-    // Carregar produtos inicial (sem login)
-    window._loadProducts = async function() {
-      const { collection, getDocs, db } = window._fb;
+    // ── Login ─────────────────────────────────────────
+    async function doLogin() {
+      const email = document.getElementById('adm-email').value.trim();
+      const pass  = document.getElementById('adm-pass').value;
+      const err   = document.getElementById('adm-err');
+      err.textContent = 'Entrando…';
       try {
-        const snap = await getDocs(collection(db, 'products'));
-        window._products = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-          .sort((a,b) => (a.order||0) - (b.order||0));
-        window.renderProducts();
+        await signInWithEmailAndPassword(auth, email, pass);
+        err.textContent = '';
+        document.getElementById('adm-pass').value = '';
       } catch(e) {
-        console.error('Firebase _loadProducts erro:', e.code, e.message);
-        let msg = '⚠️ Erro ao carregar o cardápio.';
-        if (e.code === 'permission-denied')
-          msg = '⚠️ Permissão negada. Verifique as Regras do Firestore no Firebase Console.';
-        else if (e.code === 'unavailable' || e.message?.includes('network'))
-          msg = '⚠️ Sem conexão com o servidor. Verifique sua internet.';
-        else if (e.message?.includes('projectId') || e.message?.includes('API key'))
-          msg = '⚠️ Credenciais do Firebase inválidas. Verifique o index.html.';
-        document.getElementById('products-container').innerHTML =
-          `<div class="empty-state">${msg}<br><small style="color:#999;font-size:11px">${e.code || e.message}</small></div>`;
+        const msgs = {
+          'auth/invalid-credential':  'E-mail ou senha incorretos.',
+          'auth/user-not-found':      'Usuário não encontrado.',
+          'auth/wrong-password':      'Senha incorreta.',
+          'auth/too-many-requests':   'Muitas tentativas. Aguarde.',
+        };
+        err.textContent = msgs[e.code] || 'Erro ao entrar. Tente novamente.';
       }
-    };
+    }
 
-    window._loadProducts();
+    // ── Logout ────────────────────────────────────────
+    async function doLogout() {
+      await signOut(auth);
+      document.body.style.overflow = '';
+      showToast('Sessão encerrada 👋');
+    }
 
-    // ═══════════════════════════════════════
-    // CÓDIGO DO CARDÁPIO (unificado no module)
-    // ═══════════════════════════════════════
+    function closeLoginModal() {
+      document.getElementById('admin-overlay').classList.remove('open');
+      document.getElementById('adm-err').textContent = '';
+    }
 
-    // ── Config ──
-    const PHONE = '5521997940370';
-
-    // ── State ──
-    window._products = [];
-    let cart = {}, currentCat = 'todos', searchVal = '';
-
-    // ─────────────────────────────────
-    // SECRET ADMIN TRIGGER
-    // Clicar 5x rápido no logo abre login
-    // ─────────────────────────────────
+    // ════════════════════════════════════════════════════
+    // SECRET ADMIN TRIGGER — 5 cliques rápidos no logo
+    // ════════════════════════════════════════════════════
     let logoClicks = 0, logoTimer;
     document.getElementById('logo-trigger').addEventListener('click', () => {
       logoClicks++;
       clearTimeout(logoTimer);
-      logoTimer = setTimeout(() => logoClicks = 0, 1500);
+      logoTimer = setTimeout(() => { logoClicks = 0; }, 1500);
       if (logoClicks >= 5) {
         logoClicks = 0;
         document.getElementById('admin-overlay').classList.add('open');
@@ -855,44 +852,53 @@
       }
     });
 
-    function closeLoginModal() {
-      document.getElementById('admin-overlay').classList.remove('open');
-      document.getElementById('adm-err').textContent = '';
-    }
+    // Fechar modal login ao pressionar Enter na senha
+    document.getElementById('adm-pass').addEventListener('keydown', e => {
+      if (e.key === 'Enter') doLogin();
+    });
 
-    // ── Login ──
-    async function doLogin() {
-      const email = document.getElementById('adm-email').value.trim();
-      const pass  = document.getElementById('adm-pass').value;
-      const err   = document.getElementById('adm-err');
-      err.textContent = 'Entrando…';
+    // ════════════════════════════════════════════════════
+    // FIRESTORE — carregar e escutar produtos
+    // ════════════════════════════════════════════════════
+    async function loadProducts() {
       try {
-        const { auth, signInWithEmailAndPassword } = window._fb;
-        await signInWithEmailAndPassword(auth, email, pass);
-        err.textContent = '';
-        document.getElementById('adm-pass').value = '';
+        const snap = await getDocs(collection(db, 'products'));
+        _products = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (a.order || 0) - (b.order || 0));
+        renderProducts();
       } catch(e) {
-        const msgs = {
-          'auth/invalid-credential': 'E-mail ou senha incorretos.',
-          'auth/user-not-found': 'Usuário não encontrado.',
-          'auth/wrong-password': 'Senha incorreta.',
-          'auth/too-many-requests': 'Muitas tentativas. Aguarde e tente novamente.',
-        };
-        err.textContent = msgs[e.code] || 'Erro ao entrar. Tente novamente.';
+        console.error('Firestore erro:', e.code, e.message);
+        let msg = '⚠️ Erro ao carregar o cardápio.';
+        if (e.code === 'permission-denied')
+          msg = '⚠️ Permissão negada — verifique as Regras do Firestore.';
+        else if (e.code === 'unavailable')
+          msg = '⚠️ Sem conexão. Verifique sua internet.';
+        document.getElementById('products-container').innerHTML =
+          `<div class="empty-state">${msg}<br><small style="opacity:.5;font-size:11px">${e.code || e.message}</small></div>`;
       }
     }
 
-    // ── Logout ──
-    async function doLogout() {
-      const { auth, signOut } = window._fb;
-      await signOut(auth);
-      document.body.style.overflow = '';
-      showToast('Sessão encerrada 👋');
+    let _unsubscribe = null;
+    function listenProducts() {
+      if (_unsubscribe) _unsubscribe(); // cancela listener anterior
+      _unsubscribe = onSnapshot(collection(db, 'products'), snap => {
+        _products = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (a.order || 0) - (b.order || 0));
+        renderProducts();
+        renderAdminList();
+      }, e => {
+        console.error('onSnapshot erro:', e.code, e.message);
+      });
     }
 
-    // ─────────────────────────────────
-    // CARDÁPIO — render
-    // ─────────────────────────────────
+    // Carga inicial sem login
+    loadProducts();
+
+    // ════════════════════════════════════════════════════
+    // CARDÁPIO — filtros e renderização
+    // ════════════════════════════════════════════════════
     function filterCat(cat, el) {
       currentCat = cat;
       document.querySelectorAll('.cat').forEach(c => c.classList.remove('active'));
@@ -906,10 +912,10 @@
     }
 
     function renderProducts() {
-      const products = window._products || [];
-      const filtered = products.filter(p => {
+      const filtered = _products.filter(p => {
         const mc = currentCat === 'todos' || p.cat === currentCat;
-        const ms = (p.name||'').toLowerCase().includes(searchVal) || (p.desc||'').toLowerCase().includes(searchVal);
+        const ms = (p.name||'').toLowerCase().includes(searchVal)
+                || (p.desc||'').toLowerCase().includes(searchVal);
         return mc && ms;
       });
 
@@ -920,7 +926,7 @@
       }
 
       let html = '';
-      const hl = filtered.filter(p => p.highlight);
+      const hl = filtered.filter(p =>  p.highlight);
       const nm = filtered.filter(p => !p.highlight);
 
       if (hl.length) {
@@ -937,9 +943,10 @@
     }
 
     function cardHTML(p) {
-      const qty = cart[p.id] || 0;
+      const qty      = cart[p.id] || 0;
       const bigClass = p.highlight ? 'big' : '';
-      const badge = p.badge ? `<span class="cbadge ${p.badge}">${p.badge}</span>` : '';
+      const badge    = p.badge
+        ? `<span class="cbadge ${p.badge}">${p.badge}</span>` : '';
       const imgContent = p.imageUrl
         ? `<img src="${p.imageUrl}" alt="${p.name}" loading="lazy"/>`
         : `<span class="emoji-fallback">${p.emoji || '🎂'}</span>`;
@@ -950,9 +957,9 @@
              </svg>
            </button>`
         : `<div class="qty-ctrl">
-             <button class="q-btn" onclick="changeQty('${p.id}',-1)" aria-label="Remover">−</button>
+             <button class="q-btn" onclick="changeQty('${p.id}',-1)">−</button>
              <span class="q-num">${qty}</span>
-             <button class="q-btn" onclick="changeQty('${p.id}',1)" aria-label="Adicionar">+</button>
+             <button class="q-btn" onclick="changeQty('${p.id}',1)">+</button>
            </div>`;
 
       return `
@@ -963,27 +970,29 @@
             <div class="card-name">${p.name}</div>
             <div class="card-desc">${p.desc||''}</div>
             <div class="card-foot">
-              <div class="card-price">R$ ${Number(p.price||0).toFixed(2).replace('.', ',')}</div>
+              <div class="card-price">R$ ${Number(p.price||0).toFixed(2).replace('.',',')}</div>
               ${controls}
             </div>
           </div>
         </article>`;
     }
 
-    // ─────────────────────────────────
-    // CART
-    // ─────────────────────────────────
+    // ════════════════════════════════════════════════════
+    // CARRINHO
+    // ════════════════════════════════════════════════════
     function addItem(id) {
       cart[id] = (cart[id] || 0) + 1;
       updateUI();
     }
+
     function changeQty(id, delta) {
       cart[id] = (cart[id] || 0) + delta;
       if (cart[id] <= 0) delete cart[id];
       updateUI();
     }
+
     function updateUI() {
-      const total = Object.values(cart).reduce((s, v) => s + v, 0);
+      const total  = Object.values(cart).reduce((s, v) => s + v, 0);
       const bubble = document.getElementById('cart-count');
       bubble.textContent = total;
       bubble.classList.add('bump');
@@ -991,182 +1000,198 @@
       renderProducts();
       renderCart();
     }
+
     function toggleCart() {
       document.getElementById('cart-panel').classList.toggle('open');
       renderCart();
-      document.getElementById('cart-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      document.getElementById('cart-panel')
+        .scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
+
     function renderCart() {
       const panel = document.getElementById('cart-panel');
       if (!panel.classList.contains('open')) return;
       const keys = Object.keys(cart);
       const list = document.getElementById('cart-list');
+
       if (!keys.length) {
         list.innerHTML = '<div class="cp-empty">Nenhum item adicionado ainda.</div>';
         document.getElementById('wa-btn').disabled = true;
         return;
       }
+
       let html = '', sub = 0;
       keys.forEach(id => {
-        const p = window._products.find(x => x.id == id);
+        const p = _products.find(x => x.id === id);
         if (!p) return;
         const line = p.price * cart[id];
         sub += line;
         html += `<div class="ci">
           <div>
             <div class="ci-name">${p.name}</div>
-            <div class="ci-qty">${cart[id]}x — R$ ${Number(p.price).toFixed(2).replace('.', ',')}</div>
+            <div class="ci-qty">${cart[id]}x — R$ ${Number(p.price).toFixed(2).replace('.',',')}</div>
           </div>
-          <div class="ci-price">R$ ${line.toFixed(2).replace('.', ',')}</div>
+          <div class="ci-price">R$ ${line.toFixed(2).replace('.',',')}</div>
         </div>`;
       });
       html += `<div class="ct-row">
         <span class="ct-label">Total do pedido</span>
-        <span class="ct-val">R$ ${sub.toFixed(2).replace('.', ',')}</span>
+        <span class="ct-val">R$ ${sub.toFixed(2).replace('.',',')}</span>
       </div>`;
       list.innerHTML = html;
       checkBtn();
     }
+
     function checkBtn() {
       const name = document.getElementById('client-name');
       const btn  = document.getElementById('wa-btn');
       btn.disabled = !(name && name.value.trim().length >= 2 && Object.keys(cart).length > 0);
     }
+
     function sendWA() {
       const name = document.getElementById('client-name').value.trim();
       const keys = Object.keys(cart);
       if (!keys.length || !name) return;
+
       const lines = [`Olá, Dani! 🍰 Meu nome é *${name}* e gostaria de fazer um pedido:\n`];
       let total = 0;
       keys.forEach(id => {
-        const p = window._products.find(x => x.id == id);
+        const p = _products.find(x => x.id === id);
         if (!p) return;
         const line = p.price * cart[id];
         total += line;
-        lines.push(`• ${cart[id]}x ${p.name} — R$ ${line.toFixed(2).replace('.', ',')}`);
+        lines.push(`• ${cart[id]}x ${p.name} — R$ ${line.toFixed(2).replace('.',',')}`);
       });
-      lines.push(`\n*Total: R$ ${total.toFixed(2).replace('.', ',')}*`);
+      lines.push(`\n*Total: R$ ${total.toFixed(2).replace('.',',')}*`);
       lines.push(`\nAguardo confirmação de disponibilidade e data de entrega. Obrigado! 💕`);
       window.open(`https://wa.me/${PHONE}?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
     }
 
-    // ─────────────────────────────────
-    // ADMIN — image preview
-    // ─────────────────────────────────
-    const IMGUR_CLIENT_ID = '546c25a59c58ad7';
-
+    // ════════════════════════════════════════════════════
+    // ADMIN — imagem via Imgur (gratuito, sem Storage)
+    // ════════════════════════════════════════════════════
     async function previewImg(input, previewId) {
       const file = input.files[0];
       if (!file) return;
-      if (file.size > 10 * 1024 * 1024) { showToast('⚠️ Imagem muito grande (max 10MB)'); input.value = ''; return; }
-      // Preview local imediato
+      if (file.size > 10 * 1024 * 1024) {
+        showToast('⚠️ Imagem muito grande (max 10 MB)');
+        input.value = '';
+        return;
+      }
+      // Mostra preview local imediatamente
       const reader = new FileReader();
       reader.onload = e => {
         const img = document.getElementById(previewId);
         if (img) { img.src = e.target.result; img.style.display = 'block'; }
       };
       reader.readAsDataURL(file);
-      // Upload para Imgur — retorna link permanente
+
+      // Faz upload para Imgur em paralelo
       input._imgurUrl = '';
       showToast('📤 Enviando imagem…');
       try {
         const fd = new FormData();
         fd.append('image', file);
         const res  = await fetch('https://api.imgur.com/3/image', {
-          method: 'POST',
+          method:  'POST',
           headers: { Authorization: 'Client-ID ' + IMGUR_CLIENT_ID },
-          body: fd
+          body:    fd
         });
         const json = await res.json();
         if (json.success) {
           input._imgurUrl = json.data.link;
           showToast('✅ Imagem enviada!');
         } else {
-          showToast('⚠️ Erro ao enviar imagem.');
+          showToast('⚠️ Imgur recusou a imagem. Tente outra.');
         }
       } catch(e) {
         console.error('Imgur error:', e);
-        showToast('⚠️ Falha no upload da imagem.');
+        showToast('⚠️ Falha no upload. Verifique a conexão.');
       }
     }
 
-    // ─────────────────────────────────
-    // ADMIN — upload image to Storage
-    // ─────────────────────────────────
-
-
-    // ─────────────────────────────────
-    // ADMIN — add product
-    // ─────────────────────────────────
+    // ════════════════════════════════════════════════════
+    // ADMIN — adicionar produto
+    // ════════════════════════════════════════════════════
     async function addProduct() {
-      const name  = document.getElementById('np-name').value.trim();
-      const desc  = document.getElementById('np-desc').value.trim();
-      const price = parseFloat(document.getElementById('np-price').value);
-      const emoji = document.getElementById('np-emoji').value.trim() || '🎂';
-      const cat   = document.getElementById('np-cat').value;
-      const badge = document.getElementById('np-badge').value;
-      const hl    = document.getElementById('np-highlight').checked;
+      const name     = document.getElementById('np-name').value.trim();
+      const desc     = document.getElementById('np-desc').value.trim();
+      const price    = parseFloat(document.getElementById('np-price').value);
+      const emoji    = document.getElementById('np-emoji').value.trim() || '🎂';
+      const cat      = document.getElementById('np-cat').value;
+      const badge    = document.getElementById('np-badge').value;
+      const hl       = document.getElementById('np-highlight').checked;
       const imgInput = document.getElementById('np-img-input');
       const imageUrl = imgInput._imgurUrl || '';
 
-      if (!name || isNaN(price) || price < 0) { showToast('⚠️ Preencha nome e preço'); return; }
+      if (!name || isNaN(price) || price < 0) {
+        showToast('⚠️ Preencha nome e preço');
+        return;
+      }
 
       const btn = document.getElementById('np-btn');
-      btn.disabled = true; btn.textContent = 'Salvando…';
+      btn.disabled = true;
+      btn.textContent = 'Salvando…';
 
       try {
-        const { db, addDoc, collection, serverTimestamp } = window._fb;
-        const docRef = await addDoc(collection(db, 'products'), {
-          name, desc, price, emoji, cat, badge, highlight: hl,
-          imageUrl, order: Date.now(), createdAt: serverTimestamp()
+        await addDoc(collection(db, 'products'), {
+          name, desc, price, emoji, cat, badge,
+          highlight: hl, imageUrl,
+          order: Date.now(), createdAt: serverTimestamp()
         });
 
-        if (true) { // bloco mantido para estrutura
-
-        // Clear form
-        ['np-name','np-desc','np-price','np-emoji'].forEach(id => document.getElementById(id).value = '');
+        // Limpa o formulário
+        ['np-name','np-desc','np-price','np-emoji'].forEach(id =>
+          document.getElementById(id).value = '');
         document.getElementById('np-highlight').checked = false;
         document.getElementById('np-badge').value = '';
-        document.getElementById('np-img-input').value = '';
+        imgInput.value = '';
+        imgInput._imgurUrl = '';
         document.getElementById('np-img-preview').style.display = 'none';
         showToast('✅ Produto adicionado!');
       } catch(e) {
         showToast('❌ Erro ao salvar: ' + e.message);
       }
-      btn.disabled = false; btn.textContent = 'Salvar produto';
+
+      btn.disabled = false;
+      btn.textContent = 'Salvar produto';
     }
 
-    // ─────────────────────────────────
-    // ADMIN — render product list
-    // ─────────────────────────────────
+    // ════════════════════════════════════════════════════
+    // ADMIN — lista de produtos
+    // ════════════════════════════════════════════════════
     function renderAdminList() {
       const list = document.getElementById('ap-prod-list');
       if (!list) return;
-      const products = window._products || [];
-      if (!products.length) { list.innerHTML = '<div class="empty-state">Nenhum produto ainda.</div>'; return; }
-
-      list.innerHTML = products.map(p => `
+      if (!_products.length) {
+        list.innerHTML = '<div class="empty-state">Nenhum produto ainda.</div>';
+        return;
+      }
+      list.innerHTML = _products.map(p => `
         <div class="ap-prod-item" id="ap-item-${p.id}">
           <div class="ap-prod-thumb">
-            ${p.imageUrl ? `<img src="${p.imageUrl}" alt="${p.name}"/>` : (p.emoji||'🎂')}
+            ${p.imageUrl
+              ? `<img src="${p.imageUrl}" alt="${p.name}"/>`
+              : (p.emoji || '🎂')}
           </div>
           <div class="ap-prod-info">
             <div class="ap-prod-name">${p.name}</div>
-            <div class="ap-prod-meta">${p.cat} ${p.badge ? '· '+p.badge : ''} ${p.highlight ? '· ⭐ destaque' : ''}</div>
+            <div class="ap-prod-meta">${p.cat}${p.badge ? ' · '+p.badge : ''}${p.highlight ? ' · ⭐ destaque' : ''}</div>
           </div>
-          <div class="ap-prod-price">R$ ${Number(p.price||0).toFixed(2).replace('.', ',')}</div>
+          <div class="ap-prod-price">R$ ${Number(p.price||0).toFixed(2).replace('.',',')}</div>
           <div class="ap-prod-actions">
             <button class="ap-edit-btn" onclick="toggleEditForm('${p.id}')">Editar</button>
-            <button class="ap-del-btn"  onclick="deleteProduct('${p.id}','${(p.imageUrl||'').replace(/'/g,'')}')">Excluir</button>
+            <button class="ap-del-btn"  onclick="deleteProduct('${p.id}')">Excluir</button>
           </div>
         </div>
         <div class="ap-edit-inline" id="edit-${p.id}">
           ${editFormHTML(p)}
-        </div>
-      `).join('');
+        </div>`
+      ).join('');
     }
 
     function editFormHTML(p) {
+      const cats = ['bolos','tortas','doces','brownie','kit'];
       return `
         <div class="ap-grid2">
           <div class="ap-field" style="grid-column:1/3">
@@ -1188,14 +1213,13 @@
           <div class="ap-field">
             <label>Categoria</label>
             <select id="ep-cat-${p.id}">
-              ${['bolos','tortas','doces','brownie','kit'].map(c =>
-                `<option value="${c}" ${p.cat===c?'selected':''}>${c}</option>`).join('')}
+              ${cats.map(c => `<option value="${c}" ${p.cat===c?'selected':''}>${c}</option>`).join('')}
             </select>
           </div>
           <div class="ap-field">
             <label>Badge</label>
             <select id="ep-badge-${p.id}">
-              <option value="" ${!p.badge?'selected':''}>Nenhum</option>
+              <option value=""    ${!p.badge?'selected':''}>Nenhum</option>
               <option value="novo"  ${p.badge==='novo'?'selected':''}>Novo</option>
               <option value="combo" ${p.badge==='combo'?'selected':''}>Combo</option>
             </select>
@@ -1204,10 +1228,12 @@
             <label>Nova foto (opcional)</label>
             <div class="img-upload-wrap">
               <input type="file" id="ep-img-${p.id}" accept="image/*"
-                onchange=\"previewImg(this,'ep-img-preview-${p.id}')\"/>
+                onchange="previewImg(this,'ep-img-preview-${p.id}')"/>
               <img id="ep-img-preview-${p.id}" class="img-preview"
                 src="${p.imageUrl||''}" style="${p.imageUrl?'':'display:none'}"/>
-              <div class="img-upload-text"><strong>Trocar foto</strong>Deixe em branco para manter a atual</div>
+              <div class="img-upload-text">
+                <strong>Trocar foto</strong>Deixe em branco para manter a atual
+              </div>
             </div>
           </div>
           <div class="ap-field" style="grid-column:1/3">
@@ -1222,38 +1248,34 @@
           </div>
         </div>
         <div class="ap-edit-row">
-          <button class="ap-save-btn" onclick="saveEdit('${p.id}')">Salvar alterações</button>
+          <button class="ap-save-btn"   onclick="saveEdit('${p.id}')">Salvar alterações</button>
           <button class="ap-cancel-btn" onclick="toggleEditForm('${p.id}')">Cancelar</button>
         </div>`;
     }
 
     function toggleEditForm(id) {
-      const el = document.getElementById('edit-'+id);
-      el.classList.toggle('open');
+      document.getElementById('edit-' + id).classList.toggle('open');
     }
 
-    // ─────────────────────────────────
-    // ADMIN — save edit
-    // ─────────────────────────────────
+    // ════════════════════════════════════════════════════
+    // ADMIN — salvar edição
+    // ════════════════════════════════════════════════════
     async function saveEdit(id) {
-      const name  = document.getElementById(`ep-name-${id}`).value.trim();
-      const desc  = document.getElementById(`ep-desc-${id}`).value.trim();
-      const price = parseFloat(document.getElementById(`ep-price-${id}`).value);
-      const emoji = document.getElementById(`ep-emoji-${id}`).value.trim() || '🎂';
-      const cat   = document.getElementById(`ep-cat-${id}`).value;
-      const badge = document.getElementById(`ep-badge-${id}`).value;
-      const hl    = document.getElementById(`ep-hl-${id}`).checked;
-      const epImgInput = document.getElementById(`ep-img-${id}`);
-      const newImgUrl  = epImgInput ? epImgInput._imgurUrl : '';
+      const name     = document.getElementById(`ep-name-${id}`).value.trim();
+      const desc     = document.getElementById(`ep-desc-${id}`).value.trim();
+      const price    = parseFloat(document.getElementById(`ep-price-${id}`).value);
+      const emoji    = document.getElementById(`ep-emoji-${id}`).value.trim() || '🎂';
+      const cat      = document.getElementById(`ep-cat-${id}`).value;
+      const badge    = document.getElementById(`ep-badge-${id}`).value;
+      const hl       = document.getElementById(`ep-hl-${id}`).checked;
+      const epImg    = document.getElementById(`ep-img-${id}`);
+      const newImgUrl = epImg?._imgurUrl || '';
 
       if (!name || isNaN(price)) { showToast('⚠️ Preencha nome e preço'); return; }
 
       try {
-        const { db, doc, updateDoc } = window._fb;
         const updates = { name, desc, price, emoji, cat, badge, highlight: hl };
-
         if (newImgUrl) updates.imageUrl = newImgUrl;
-
         await updateDoc(doc(db, 'products', id), updates);
         toggleEditForm(id);
         showToast('✅ Produto atualizado!');
@@ -1262,13 +1284,12 @@
       }
     }
 
-    // ─────────────────────────────────
-    // ADMIN — delete product
-    // ─────────────────────────────────
+    // ════════════════════════════════════════════════════
+    // ADMIN — excluir produto
+    // ════════════════════════════════════════════════════
     async function deleteProduct(id) {
       if (!confirm('Tem certeza que deseja excluir este produto?')) return;
       try {
-        const { db, doc, deleteDoc } = window._fb;
         await deleteDoc(doc(db, 'products', id));
         showToast('🗑️ Produto excluído');
       } catch(e) {
@@ -1276,9 +1297,9 @@
       }
     }
 
-    // ─────────────────────────────────
+    // ════════════════════════════════════════════════════
     // TOAST
-    // ─────────────────────────────────
+    // ════════════════════════════════════════════════════
     function showToast(msg) {
       const t = document.getElementById('toast');
       t.textContent = msg;
@@ -1286,31 +1307,31 @@
       setTimeout(() => t.classList.remove('show'), 2800);
     }
 
-    // ── PWA ──
+    // ── PWA ──────────────────────────────────────────
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
+      window.addEventListener('load', () =>
+        navigator.serviceWorker.register('sw.js').catch(() => {}));
     }
 
-    // ── Expor funções para onclick no HTML (module scope fix) ──
-    window.filterCat = filterCat;
-    window.filterProducts = filterProducts;
-    window.toggleCart = toggleCart;
-    window.sendWA = sendWA;
-    window.doLogin = doLogin;
+    // ════════════════════════════════════════════════════
+    // EXPOR FUNÇÕES PARA onclick NO HTML
+    // (necessário pois type="module" tem escopo isolado)
+    // ════════════════════════════════════════════════════
+    window.doLogin         = doLogin;
+    window.doLogout        = doLogout;
     window.closeLoginModal = closeLoginModal;
-    window.doLogout = doLogout;
-    window.addProduct = addProduct;
-    window.addItem = addItem;
-    window.changeQty = changeQty;
-    window.checkBtn = checkBtn;
-    window.toggleEditForm = toggleEditForm;
-    window.saveEdit = saveEdit;
-    window.deleteProduct = deleteProduct;
-    window.previewImg = previewImg;
-    window.renderAdminList = renderAdminList;
-    window.renderProducts = renderProducts;
-    window.renderCart = renderCart;
-    window.showToast = showToast;
+    window.filterCat       = filterCat;
+    window.filterProducts  = filterProducts;
+    window.toggleCart      = toggleCart;
+    window.sendWA          = sendWA;
+    window.checkBtn        = checkBtn;
+    window.addItem         = addItem;
+    window.changeQty       = changeQty;
+    window.addProduct      = addProduct;
+    window.toggleEditForm  = toggleEditForm;
+    window.saveEdit        = saveEdit;
+    window.deleteProduct   = deleteProduct;
+    window.previewImg      = previewImg;
   </script>
 </body>
 </html>
